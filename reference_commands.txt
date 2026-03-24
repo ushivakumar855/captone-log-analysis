@@ -1,0 +1,12 @@
+# 1. Data prep
+python -m data.beth_adapter        # converts BETH CSV → JSONL
+python -m data.trace_extractor     # extracts Theia .gz → JSONL
+
+# 2. GNN (run once)
+python -m gnn.extract_pyg          # pulls graph from Neo4j → benign_graph.pt
+python -m gnn.train_gnn            # trains model → ocr_apt_model.pth
+
+# 3. Daily use
+python run_unified_pipeline.py     # full SOC pipeline on BETH test set
+python evaluate_model.py           # evaluate default model, prints metrics
+python -m pipelines.benchmark_pipeline  # test all models, saves CSV
