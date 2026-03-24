@@ -10,3 +10,19 @@ python -m gnn.train_gnn            # trains model → ocr_apt_model.pth
 python run_unified_pipeline.py     # full SOC pipeline on BETH test set
 python evaluate_model.py           # evaluate default model, prints metrics
 python -m pipelines.benchmark_pipeline  # test all models, saves CSV
+
+
+
+
+
+# Full SOC pipeline with detailed execution trace
+python run_unified_pipeline.py
+
+# Single model evaluation with per-log feedback
+python evaluate_model.py
+
+# GNN training with convergence monitoring
+python -m gnn.train_gnn
+
+# Data adapter with transformation statistics
+python -m data.beth_adapter

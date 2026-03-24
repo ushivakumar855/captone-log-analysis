@@ -18,66 +18,92 @@ DATASET_PATH = FINAL_DATASETS / "BETH_final_dataset" / "beth_testing.json"
 
 
 def _load_balanced(filepath, per_class: int) -> list[dict]:
-    logger.info("[Evaluate] Loading %s", filepath)
+    logger.info("[Evaluate] Loading balanced test set from %s", filepath)
+    logger.debug("[Evaluate] Target: %d samples per class", per_class)
+    
     if not os.path.exists(filepath):
-        logger.error("File not found: %s", filepath)
+        logger.error("[Evaluate] File not found: %s", filepath)
         return []
 
-    with open(filepath, "r", encoding="utf-8", errors="replace") as f:
-        content = f.read()
-
-    logs = []
     try:
-        logs = json.loads(content)
-    except json.JSONDecodeError:
+        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+        logger.debug("[Evaluate] File read: %d bytes", len(content))
+
+        logs = []
         try:
-            dec, pos = json.JSONDecoder(), 0
-            content  = content.lstrip()
-            while pos < len(content):
-                obj, pos = dec.raw_decode(content, pos)
-                logs.append(obj)
-                while pos < len(content) and content[pos].isspace():
-                    pos += 1
-        except Exception:
+            logs = json.loads(content)
+            logger.debug("[Evaluate] Parsed as single JSON")
+        except json.JSONDecodeError:
             try:
-                logs = ast.literal_eval(content)
-            except Exception as exc:
-                logger.error("Cannot parse file: %s", exc)
-                return []
+                dec, pos = json.JSONDecoder(), 0
+                content  = content.lstrip()
+                while pos < len(content):
+                    obj, pos = dec.raw_decode(content, pos)
+                    logs.append(obj)
+                    while pos < len(content) and content[pos].isspace():
+                        pos += 1
+                logger.debug("[Evaluate] Parsed as streaming JSON: %d objects", len(logs))
+            except Exception:
+                try:
+                    logs = ast.literal_eval(content)
+                    logger.debug("[Evaluate] Parsed as literal eval")
+                except Exception as exc:
+                    logger.error("[Evaluate] Cannot parse file: %s", exc, exc_info=True)
+                    return []
 
-    benign    = [l for l in logs if isinstance(l, dict) and int(l.get("is_evil", 0)) == 0]
-    malicious = [l for l in logs if isinstance(l, dict) and int(l.get("is_evil", 0)) == 1]
-    logger.info("  Benign=%d  Malicious=%d", len(benign), len(malicious))
+        benign    = [l for l in logs if isinstance(l, dict) and int(l.get("is_evil", 0)) == 0]
+        malicious = [l for l in logs if isinstance(l, dict) and int(l.get("is_evil", 0)) == 1]
+        logger.info("[Evaluate] Dataset composition: %d benign, %d malicious, %d unknown",
+                   len(benign), len(malicious), len(logs) - len(benign) - len(malicious))
 
-    sampled = (
-        random.sample(benign,    min(per_class, len(benign)))
-        + random.sample(malicious, min(per_class, len(malicious)))
-    )
-    random.shuffle(sampled)
-    return sampled
+        sampled_benign = random.sample(benign,    min(per_class, len(benign)))
+        sampled_malicious = random.sample(malicious, min(per_class, len(malicious)))
+        sampled = sampled_benign + sampled_malicious
+        random.shuffle(sampled)
+        
+        logger.info("[Evaluate] Balanced sample: %d benign + %d malicious = %d total",
+                   len(sampled_benign), len(sampled_malicious), len(sampled))
+        return sampled
+        
+    except Exception as e:
+        logger.error("[Evaluate] Failed to load balanced dataset: %s", e, exc_info=True)
+        return []
 
 
 def _predict_evil(analysis: str) -> bool:
     txt = analysis.lower()
-    return "malicious" in txt and "benign" not in txt
+    is_malicious = "malicious" in txt and "benign" not in txt
+    logger.debug("[Evaluate] Classification extracted: %s (from len=%d response)",
+                 "MALICIOUS" if is_malicious else "BENIGN", len(txt))
+    return is_malicious
 
 
 def evaluate():
+    logger.info("="*70)
+    logger.info("=== LogRESP Model Evaluation ===")
+    logger.info("Dataset: BETH Test Set  |  Sample size per class: %d", EVAL_SAMPLE_PER_CLASS)
+    logger.info("="*70)
+    
     test_logs = _load_balanced(DATASET_PATH, EVAL_SAMPLE_PER_CLASS)
     if not test_logs:
-        logger.error("No logs loaded — aborting.")
+        logger.error("[Evaluate] No logs loaded — aborting.")
         return
 
-    logger.info("[Evaluate] Running on %d logs...", len(test_logs))
+    logger.info("[Evaluate] Starting evaluation on %d logs", len(test_logs))
     cm    = ConfusionMatrix()
     start = time.time()
+    
+    tp_count = tn_count = fp_count = fn_count = 0
 
     for i, log in enumerate(test_logs, 1):
         actual_evil = int(log.get("is_evil", 0))
         pid   = str(log.get("process_id", log.get("processId", "UNKNOWN")))
-        label = "Malicious" if actual_evil else "Benign"
-        logger.info("[%d/%d] PID=%-8s  truth=%s", i, len(test_logs), pid, label)
+        label = "MALICIOUS" if actual_evil else "BENIGN"
+        
+        logger.info("[Evaluate %d/%d] PID=%s  Ground Truth=%s", i, len(test_logs), pid, label)
 
+        # Build state for pipeline
         state = {
             "raw_log": log, "process_id": pid,
             "anomaly_score": 0.0, "neo4j_context": "",
@@ -85,37 +111,71 @@ def evaluate():
             "raw_commands": "", "verified_commands": "",
             "final_analysis": "",
         }
+        
         try:
+            logger.debug("[Evaluate %d] Invoking detection pipeline", i)
+            invoke_start = time.time()
             result    = logresp_app.invoke(state)
-            predicted = _predict_evil(result["final_analysis"])
+            invoke_time = time.time() - invoke_start
+            
+            analysis = result["final_analysis"]
+            logger.debug("[Evaluate %d] Pipeline response in %.2fs (len=%d)", i, invoke_time, len(analysis))
+            
+            predicted = _predict_evil(analysis)
+            
         except Exception as exc:
-            logger.warning("  Error: %s", exc)
+            logger.warning("[Evaluate %d] Pipeline error: %s | Defaulting to BENIGN", i, exc)
             predicted = False
 
         cm.update(actual_evil, predicted)
-        tag = {
-            (1, True):  "TRUE POSITIVE  ✓",
-            (1, False): "FALSE NEGATIVE ✗",
-            (0, True):  "FALSE POSITIVE ✗",
-            (0, False): "TRUE NEGATIVE  ✓",
-        }[(actual_evil, predicted)]
-        logger.info("  → %s", tag)
+        
+        # Classification result mapping
+        result_map = {
+            (1, True):  "TP ✓ (Correctly identified as malicious)",
+            (1, False): "FN ✗ (Missed malicious log)",
+            (0, True):  "FP ✗ (False alarm - benign flagged)",
+            (0, False): "TN ✓ (Correctly identified as benign)",
+        }
+        result_tag = result_map[(actual_evil, predicted)]
+        logger.info("[Evaluate %d] Prediction: %s  %s",
+                   i, "MALICIOUS" if predicted else "BENIGN", result_tag)
+        
+        # Print full JSON if malicious is detected
+        if predicted:
+            logger.warning("[Evaluate %d] *** MALICIOUS DATA DETECTED ***", i)
+            logger.warning("[Evaluate %d] Complete JSON:", i)
+            logger.warning(json.dumps(log, indent=2))
+        
+        # Track counts
+        if actual_evil == 1 and predicted == True:
+            tp_count += 1
+        elif actual_evil == 0 and predicted == False:
+            tn_count += 1
+        elif actual_evil == 0 and predicted == True:
+            fp_count += 1
+        elif actual_evil == 1 and predicted == False:
+            fn_count += 1
 
     elapsed = round(time.time() - start, 2)
     summary = cm.summary()
 
-    print("\n" + "="*50)
-    print("  LogRESP Evaluation Results")
-    print("="*50)
-    print(f"  Logs tested : {len(test_logs)}")
-    print(f"  Time taken  : {elapsed}s")
-    print(f"  TP={cm.TP}  TN={cm.TN}  FP={cm.FP}  FN={cm.FN}")
-    print("-"*50)
-    print(f"  Accuracy  : {summary['accuracy']:.2f}%")
-    print(f"  Precision : {summary['precision']:.2f}%")
-    print(f"  Recall    : {summary['recall']:.2f}%")
-    print(f"  F1 Score  : {summary['f1']:.2f}%")
-    print("="*50)
+    # Log results
+    logger.info("="*70)
+    logger.info("=== Evaluation Complete ===")
+    logger.info("Total Time: %ds  |  Logs Evaluated: %d", elapsed, len(test_logs))
+    logger.info("="*70)
+    logger.info("Confusion Matrix:")
+    logger.info("  TP (True Positive):  %d", cm.TP)
+    logger.info("  TN (True Negative):  %d", cm.TN)
+    logger.info("  FP (False Positive): %d", cm.FP)
+    logger.info("  FN (False Negative): %d", cm.FN)
+    logger.info("-"*70)
+    logger.info("Performance Metrics:")
+    logger.info("  Accuracy:  %.2f%%", summary["accuracy"])
+    logger.info("  Precision: %.2f%%", summary["precision"])
+    logger.info("  Recall:    %.2f%%", summary["recall"])
+    logger.info("  F1-Score:  %.2f%%", summary["f1"])
+    logger.info("="*70)
 
 
 if __name__ == "__main__":
