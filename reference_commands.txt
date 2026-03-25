@@ -12,9 +12,6 @@ python evaluate_model.py           # evaluate default model, prints metrics
 python -m pipelines.benchmark_pipeline  # test all models, saves CSV
 
 
-
-
-
 # Full SOC pipeline with detailed execution trace
 python run_unified_pipeline.py
 
