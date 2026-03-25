@@ -1,6 +1,9 @@
 # db/neo4j_pool.py  —  shared connection pool, context manager
 # Every agent uses get_driver() instead of opening its own connection.
 
+# this is very old code
+
+
 import time
 from contextlib import contextmanager
 from neo4j import GraphDatabase
