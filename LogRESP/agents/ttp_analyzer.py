@@ -3,44 +3,22 @@
 
 import json
 import time
-from typing import Any, Dict, Optional, Literal, TypedDict
+from typing import Any, Dict, Optional, Literal
 
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from neo4j import GraphDatabase
 
 from config import (
     OLLAMA_BASE_URL,
     DEFAULT_MODEL,
     LLM_TEMPERATURE,
-    # If you have these in config, uncomment and use them:
-    # NEO4J_URI,
-    # NEO4J_AUTH,
 )
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# ---- Optional local defaults if not present in config.py ----
-# Prefer moving these to config.py if this is production code.
-NEO4J_URI = "neo4j://localhost:7687"
-NEO4J_AUTH = ("neo4j", "capstone123")
-
 DEFAULT_PROMPT_MODE: Literal["cot"] = "cot"
-
-# -----------------------------
-# State shape (optional typing)
-# -----------------------------
-class AgentState(TypedDict, total=False):
-    raw_log: dict
-    process_id: str
-    neo4j_context: str
-
-    prompt_mode: Literal["cot"]
-
-    final_analysis: str
-    final_analysis_json: dict
 
 
 # -----------------------------------------
@@ -120,69 +98,6 @@ def _safe_json_loads(text: str) -> Dict[str, Any]:
         if start != -1 and end != -1 and end > start:
             return json.loads(text[start : end + 1])
         raise
-
-
-def context_retriever_node(state: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Retriever: Multi-hop graph RAG context from Neo4j.
-
-    Expected inputs in state:
-      - process_id (preferred) OR raw_log containing an id field you can adapt
-    Produces:
-      - neo4j_context (string)
-    """
-    pid = state.get("process_id")
-    if not pid:
-        # If your raw_log has a different key for process id, adapt here.
-        pid = (state.get("raw_log") or {}).get("process_id") or (state.get("raw_log") or {}).get("pid")
-
-    if not pid:
-        logger.warning("[TTP Analyzer] No process_id present; skipping Neo4j retrieval")
-        return {"neo4j_context": "No extended graph context found (missing process_id)."}
-
-    logger.info("[TTP Analyzer] Retriever: Fetching deep multi-hop context for Process %s...", pid)
-
-    query = """
-    MATCH (p:Process {id: $pid})
-    OPTIONAL MATCH (parent:Process)-[:SPAWNED]->(p)
-    OPTIONAL MATCH (grandparent:Process)-[:SPAWNED]->(parent)
-    OPTIONAL MATCH (p)-[:ACCESSED]->(f:File)
-    OPTIONAL MATCH (p)-[:CONNECTED_TO]->(n:Network)
-    RETURN
-        grandparent.cmdLine AS Grandparent,
-        parent.cmdLine AS Parent,
-        p.cmdLine AS TargetCmd,
-        collect(DISTINCT f.path) AS TouchedFiles,
-        collect(DISTINCT n.ip) AS NetworkConnections
-    """
-
-    context_str = "No extended graph context found."
-    try:
-        driver = GraphDatabase.driver(NEO4J_URI, auth=NEO4J_AUTH)
-        with driver.session() as session:
-            result = session.run(query, pid=pid).single()
-            if result:
-                g_parent = result.get("Grandparent") or "Unknown"
-                parent = result.get("Parent") or "Unknown"
-                target_cmd = result.get("TargetCmd") or "Unknown"
-                files = result.get("TouchedFiles", []) or []
-                networks = result.get("NetworkConnections", []) or []
-
-                context_str = (
-                    f"--- EXECUTION CHAIN ---\n"
-                    f"Grandparent Process: {g_parent}\n"
-                    f"  └── Spawned Parent: {parent}\n"
-                    f"        └── Spawned Target: {target_cmd}\n\n"
-                    f"--- ARTIFACTS TOUCHED ---\n"
-                    f"Files: {', '.join(files[:5]) if files else 'None'}\n"
-                    f"Network IPs: {', '.join(networks[:3]) if networks else 'None'}"
-                )
-        driver.close()
-    except Exception as e:
-        logger.error("[TTP Analyzer] Neo4j retrieval failed: %s", e, exc_info=True)
-        context_str = f"No extended graph context found (Neo4j error: {e})."
-
-    return {"neo4j_context": context_str}
 
 
 def ttp_analyzer_node(state: Dict[str, Any], model_name: str | None = None) -> Dict[str, Any]:

@@ -66,13 +66,13 @@ def score_log(log: dict) -> float:
     
     try:
         model = _load_model()
-        parent_id   = str(log.get("parentProcessId", "unknown_parent"))
-        process_name = log.get("processName", log.get("cmdLine", "unknown"))
-        user_id     = str(log.get("userId", "unknown"))
+        parent_id   = str(log.get("parentProcessId") or log.get("parent_process", {}).get("processId") or "unknown_parent")
+        process_name = log.get("processName") or log.get("cmdLine") or "unknown"
+        user_id     = str(log.get("userId") or "unknown")
         child_fp    = f"{process_name}_{user_id}"
         
         logger.debug("[GNN] Extracted features: parent_id=%s, process=%s, user=%s",
-                     parent_id[:40], process_name[:40], user_id[:40])
+                     parent_id[:40], str(process_name)[:40], user_id[:40])
 
         # Feature hashing
         feat_start = time.time()

@@ -2,9 +2,15 @@
 # Pulls Process nodes + SPAWNED edges from Neo4j and saves a PyG Data object.
 # Run this once before training: python -m gnn.extract_pyg
 
+import sys
 import hashlib
 import torch
+from pathlib import Path
 from torch_geometric.data import Data
+
+# Add parent directory to sys.path so relative imports work
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from db.neo4j_pool import neo4j_session, close_driver
 from config import BENIGN_GRAPH_PT, GNN_INPUT_DIM
 from utils.logger import get_logger

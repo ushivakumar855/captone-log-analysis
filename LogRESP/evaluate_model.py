@@ -2,11 +2,17 @@
 # Evaluates the DEFAULT model on the BETH test set.
 # Run from project root: python evaluate_model.py
 
+import sys
 import json
 import os
 import random
 import time
 import ast
+from pathlib import Path
+
+# Add parent directory to sys.path so relative imports work
+sys.path.insert(0, str(Path(__file__).parent))
+
 from config import FINAL_DATASETS, EVAL_SAMPLE_PER_CLASS
 from pipelines.logresp_pipeline import logresp_app
 from utils.logger import get_logger

@@ -31,14 +31,18 @@ logger.debug("[IR Pipeline] Compiling state graph")
 ir_app = wf.compile()
 logger.info("[IR Pipeline] Incident response pipeline ready")
 
-def run_ir(process_id: str, anomaly_score: float) -> dict:
+def run_ir(process_id: str, anomaly_score: float, raw_log: dict) -> dict:
     logger.info("[IR Pipeline] run_ir() invoked with PID=%s, score=%.3f", process_id, anomaly_score)
     
     try:
         # Initialize state with all fields
         logger.debug("[IR Pipeline] Initializing state with LogRESPState defaults")
         state = {k: "" for k in LogRESPState.__annotations__}
-        state.update({"process_id": str(process_id), "anomaly_score": anomaly_score})
+        state.update({
+            "process_id": str(process_id),
+            "anomaly_score": anomaly_score,
+            "raw_log": raw_log
+        })
         logger.debug("[IR Pipeline] State initialized: %d fields set", len(state))
         
         # Invoke pipeline

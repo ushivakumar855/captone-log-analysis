@@ -1,8 +1,13 @@
 # config.py  —  single source of truth for the entire project
 # All other files import from here. No hardcoded paths anywhere else.
 
+import sys
 from pathlib import Path
 import os
+
+# Add parent directory to sys.path so relative imports work
+sys.path.insert(0, str(Path(__file__).parent))
+
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -35,7 +40,9 @@ BENIGN_GRAPH_PT  = MODEL_DIR / "benign_graph.pt"
 # ── Neo4j ─────────────────────────────────────────────────────────────────────
 NEO4J_URI      = os.getenv("NEO4J_URI",  "bolt://localhost:7687")
 NEO4J_USER     = os.getenv("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASS", "capstone123")
+NEO4J_PASSWORD = os.getenv("NEO4J_PASS", "test2-beth123")
+BETH_JSON_DIR  = Path(os.getenv("BETH_JSON_DIR", r"C:\Users\Student\Downloads\test1\dataset\preprocessed\test"))
+BETH_JSON_TEST_DIR = Path(os.getenv("BETH_JSON_TEST_DIR", r"C:\Users\Student\Downloads\test1\dataset\preprocessed\test"))
 
 logger.debug("[Config] Neo4j URI: %s (source: %s)", NEO4J_URI,
             "env var" if "NEO4J_URI" in os.environ else "default")
@@ -43,7 +50,7 @@ logger.debug("[Config] Neo4j User: %s (password provided: %s)", NEO4J_USER, "YES
 
 # ── LLM ──────────────────────────────────────────────────────────────────────
 OLLAMA_BASE_URL       = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
-DEFAULT_MODEL         = os.getenv("LOGRESP_MODEL", "qwen2.5-coder:7b")
+DEFAULT_MODEL         = os.getenv("LOGRESP_MODEL", "llama3.1:8b")
 LLM_TEMPERATURE       = 0.0
 
 logger.info("[Config] LLM Configuration:")
