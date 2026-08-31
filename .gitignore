@@ -1,0 +1,14 @@
+# Local environment and credentials
+.env
+venv/
+.venv/
+
+# Python runtime artifacts
+__pycache__/
+*.py[cod]
+
+# Editor / OS metadata
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
